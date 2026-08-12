@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
 from google import genai
@@ -10,6 +10,16 @@ app = Flask(__name__)
 CORS(app)
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+# Root route para i-serve ang frontend index.html
+@app.route('/')
+def home():
+    return send_from_directory('.', 'index.html')
+
+# Catch-all route para sa static files (CSS, JS, images)
+@app.route('/<path:path>')
+def serve_static(path):
+    return send_from_directory('.', path)
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
