@@ -2012,10 +2012,9 @@ function useSuggestion(button) {
   sendMessage();
 }
 
-function getResponse(question) {
+function checkLocalDatasetMatch(question) {
   const query = question.toLowerCase().trim();
   const code = currentUser ? getCode(currentUser.course) : "";
-  const topics = TOPICS[code] || [];
 
   if (isDatasetLoaded && academicDataset.length > 0) {
     const courseEntries = academicDataset.filter(
@@ -2061,6 +2060,17 @@ function getResponse(question) {
     }
   }
 
+  return null;
+}
+
+function getResponse(question) {
+  const datasetMatch = checkLocalDatasetMatch(question);
+  if (datasetMatch) return datasetMatch;
+
+  const query = question.toLowerCase().trim();
+  const code = currentUser ? getCode(currentUser.course) : "";
+  const topics = TOPICS[code] || [];
+
   if (query.includes("study plan") || query.includes("semester") || query.includes("schedule")) {
     return `Here is a suggested study plan for ${currentUser ? currentUser.course : "your course"}:\n\nMonday:\n• Study new concepts\n• Create short notes\n\nTuesday:\n• Review lecture materials\n• Practice terminology\n\nWednesday:\n• Solve problems or analyze cases\n• Use active recall\n\nThursday:\n• Study difficult topics\n• Create flashcards\n\nFriday:\n• Complete practice questions\n• Review mistakes\n\nSaturday:\n• Take a timed self-test\n• Summarize the week\n\nSunday:\n• Light review\n• Prepare for the upcoming week`;
   }
@@ -2072,8 +2082,16 @@ function getResponse(question) {
   return `I can assist with your ${currentUser ? currentUser.course : "course"} studies.\n\nPopular topics include:\n${topics.slice(0, 5).map(t => "• " + t).join("\n")}`;
 }
 
-// Function para sa pagpapadala ng prompt sa Flask Backend API
-async function sendPromptToAI(text) {
+async function sendPromptToAI(userPrompt) {
+  // 1. Tignan muna kung may eksaktong match sa local dataset
+  const datasetMatch = checkLocalDatasetMatch(userPrompt);
+  if (datasetMatch) {
+    hideTyping();
+    displayMessage(datasetMatch, 'ai');
+    return;
+  }
+
+  // 2. Kung walang match sa dataset prompts, kukuha ng response mula sa backend API sa Vercel
   try {
     const response = await fetch('/api/chat', {
       method: 'POST',
@@ -2081,8 +2099,8 @@ async function sendPromptToAI(text) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ 
-        prompt: text,
-        course: currentUser ? currentUser.course : "" 
+        prompt: userPrompt,
+        course: currentUser ? currentUser.course : "General Academics"
       })
     });
 
@@ -2090,32 +2108,20 @@ async function sendPromptToAI(text) {
     hideTyping();
 
     if (data.success && data.response) {
-      addMessage(data.response, "assistant");
+      displayMessage(data.response, 'ai');
     } else {
-      // Fallback kung walang sagot mula sa API
-      const fallback = getResponse(text);
-      addMessage(fallback, "assistant");
+      fetchFallbackAnswer(userPrompt);
     }
   } catch (error) {
-    console.error("Fetch Error:", error);
+    console.error('Error sa pakikipag-usap sa backend:', error);
     hideTyping();
-    // Fallback kapag nagkaroon ng koneksyon error sa backend
-    const fallback = getResponse(text);
-    addMessage(fallback, "assistant");
+    fetchFallbackAnswer(userPrompt);
   }
 }
 
 function fetchFallbackAnswer(userPrompt) {
-    fetch('academic_answers.json')
-        .then(res => res.json())
-        .then(data => {
-            const fallbackResponse = data[userPrompt] || getResponse(userPrompt);
-            displayMessage(fallbackResponse, 'assistant');
-        })
-        .catch(() => {
-            const fallbackResponse = getResponse(userPrompt);
-            displayMessage(fallbackResponse, 'assistant');
-        });
+  const fallbackResponse = getResponse(userPrompt);
+  displayMessage(fallbackResponse, 'ai');
 }
 
 function sendMessage() {
@@ -2231,7 +2237,7 @@ function closeTool() {
   document.getElementById("toolModal").classList.add("hidden");
 }
 
-function runTool(tool) {
+async function runTool(tool) {
   const input = document.getElementById("toolInput").value.trim();
   const output = document.getElementById("toolOutput");
 
@@ -2266,11 +2272,39 @@ function runTool(tool) {
 
   if (matchedResponse) {
     output.textContent = matchedResponse;
-  } else {
-    output.textContent = `STRUCTURED OUTPUT FOR: ${input.toUpperCase()}\n\nCourse: ${currentUser ? currentUser.course : "N/A"}\n\nGenerated relevant academic details based on your input.`;
+    output.classList.remove("hidden");
+    return;
   }
 
+  output.textContent = "Generating response from AI...";
   output.classList.remove("hidden");
+
+  const toolPrompts = {
+    summarizer: `Create a structured summary for: ${input}`,
+    quiz: `Generate practice quiz questions and answers for: ${input}`,
+    flashcards: `Create review flashcards for: ${input}`,
+    planner: `Create a study plan for: ${input}`
+  };
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: toolPrompts[tool] || input,
+        course: currentUser ? currentUser.course : "General Academics"
+      })
+    });
+
+    const data = await response.json();
+    if (data.success && data.response) {
+      output.textContent = data.response;
+    } else {
+      output.textContent = `STRUCTURED OUTPUT FOR: ${input.toUpperCase()}\n\nCourse: ${currentUser ? currentUser.course : "N/A"}\n\nGenerated relevant academic details based on your input.`;
+    }
+  } catch (error) {
+    output.textContent = `STRUCTURED OUTPUT FOR: ${input.toUpperCase()}\n\nCourse: ${currentUser ? currentUser.course : "N/A"}\n\nGenerated relevant academic details based on your input.`;
+  }
 }
 
 document.addEventListener("click", event => {
