@@ -2072,29 +2072,37 @@ function getResponse(question) {
   return `I can assist with your ${currentUser ? currentUser.course : "course"} studies.\n\nPopular topics include:\n${topics.slice(0, 5).map(t => "• " + t).join("\n")}`;
 }
 
-async function sendPromptToAI(userPrompt) {
-    try {
-        const response = await fetch('http://localhost:5000/api/chat', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ prompt: userPrompt })
-        });
+// Function para sa pagpapadala ng prompt sa Flask Backend API
+async function sendPromptToAI(text) {
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ 
+        prompt: text,
+        course: currentUser ? currentUser.course : "" 
+      })
+    });
 
-        const data = await response.json();
-        hideTyping();
+    const data = await response.json();
+    hideTyping();
 
-        if (data.success) {
-            displayMessage(data.response, 'ai');
-        } else {
-            fetchFallbackAnswer(userPrompt);
-        }
-    } catch (error) {
-        console.error('Error sa pakikipag-usap sa backend:', error);
-        hideTyping();
-        fetchFallbackAnswer(userPrompt);
+    if (data.success && data.response) {
+      addMessage(data.response, "assistant");
+    } else {
+      // Fallback kung walang sagot mula sa API
+      const fallback = getResponse(text);
+      addMessage(fallback, "assistant");
     }
+  } catch (error) {
+    console.error("Fetch Error:", error);
+    hideTyping();
+    // Fallback kapag nagkaroon ng koneksyon error sa backend
+    const fallback = getResponse(text);
+    addMessage(fallback, "assistant");
+  }
 }
 
 function fetchFallbackAnswer(userPrompt) {
@@ -2102,11 +2110,11 @@ function fetchFallbackAnswer(userPrompt) {
         .then(res => res.json())
         .then(data => {
             const fallbackResponse = data[userPrompt] || getResponse(userPrompt);
-            displayMessage(fallbackResponse, 'ai');
+            displayMessage(fallbackResponse, 'assistant');
         })
         .catch(() => {
             const fallbackResponse = getResponse(userPrompt);
-            displayMessage(fallbackResponse, 'ai');
+            displayMessage(fallbackResponse, 'assistant');
         });
 }
 
